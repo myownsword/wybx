@@ -3,7 +3,7 @@ from django.contrib.auth.models import User
 from django.db import transaction
 from repair.models import (
     Room, Resident, Technician, Dispatcher, Material,
-    WorkOrder, OrderMaterial, generate_order_no, add_timeline,
+    WorkOrder, OrderMaterial, TimeoutConfig, generate_order_no, add_timeline,
     TIMELINE_CREATED,
 )
 from django.utils import timezone
@@ -86,6 +86,19 @@ class Command(BaseCommand):
         for name, unit, price in materials_data:
             Material.objects.get_or_create(name=name, defaults={'unit': unit, 'price': price})
         self.stdout.write(f'  耗材: {len(materials_data)} 种')
+
+        timeout_configs = [
+            ('urgent', 15, 30),
+            ('high', 30, 60),
+            ('normal', 60, 120),
+            ('low', 120, 240),
+        ]
+        for urgency, assign_min, arrive_min in timeout_configs:
+            TimeoutConfig.objects.get_or_create(
+                urgency=urgency,
+                defaults={'assign_timeout_minutes': assign_min, 'arrive_timeout_minutes': arrive_min}
+            )
+        self.stdout.write(f'  超时配置: {len(timeout_configs)} 条')
 
         now = timezone.now()
         resident1 = Resident.objects.filter(name='张三').first()

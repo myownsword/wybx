@@ -19,6 +19,9 @@
             <span class="me-3"><i class="bi bi-clock me-1"></i>{{ order.created_at|date:"Y-m-d H:i:s" }}</span>
             <span class="badge {{ order.status_badge_class }} badge-lg ms-2">{{ order.get_status_display }}</span>
             <span class="badge {{ order.urgency_badge_class }} badge-lg ms-1">{{ order.get_urgency_display }}</span>
+            {% if order.is_timeout %}
+            <span class="badge bg-danger badge-lg ms-1"><i class="bi bi-clock-history me-1"></i>{{ order.get_timeout_type_display }}</span>
+            {% endif %}
         </div>
     </div>
     <div class="d-flex gap-2 flex-wrap">
@@ -55,6 +58,9 @@
                         <tr><th class="ps-0 text-muted">到场时间</th><td class="pe-0">{% if order.arrived_at %}{{ order.arrived_at|date:"m-d H:i" }}{% else %}<span class="text-muted">-</span>{% endif %}</td></tr>
                         <tr><th class="ps-0 text-muted">完工时间</th><td class="pe-0">{% if order.finished_at %}{{ order.finished_at|date:"m-d H:i" }}{% else %}<span class="text-muted">-</span>{% endif %}</td></tr>
                         <tr><th class="ps-0 text-muted">确认时间</th><td class="pe-0">{% if order.confirmed_at %}{{ order.confirmed_at|date:"m-d H:i" }}{% else %}<span class="text-muted">-</span>{% endif %}</td></tr>
+                        {% if order.is_timeout %}
+                        <tr class="table-danger"><th class="ps-0 text-danger">超时类型</th><td class="pe-0"><i class="bi bi-clock-history text-danger me-1"></i>{{ order.get_timeout_type_display }}{% if order.timeout_at %}<span class="text-muted ms-2">({{ order.timeout_at|date:"m-d H:i" }})</span>{% endif %}</td></tr>
+                        {% endif %}
                     </tbody>
                 </table>
             </div>
@@ -167,7 +173,7 @@
     </div>
 
     <div class="col-lg-7">
-        {% if can_assign or can_start or can_finish or can_confirm or can_rework %}
+        {% if can_assign or can_start or can_finish or can_confirm or can_rework or can_reschedule or can_flag or can_review_reschedule %}
         <div class="card border-0 shadow-sm mb-4">
             <div class="card-header bg-white">
                 <h6 class="fw-bold mb-0"><i class="bi bi-gear-wide-connected text-primary me-2"></i>操作面板</h6>
@@ -372,6 +378,111 @@
                         </div>
                         <button type="submit" class="btn btn-danger w-100" hx-disable>
                             <i class="bi bi-arrow-repeat me-1"></i>提交返工申请
+                            <span class="spinner-border spinner-border-sm ms-2 htmx-indicator"></span>
+                        </button>
+                    </form>
+                </div>
+                {% endif %}
+
+                {% if can_reschedule %}
+                <div class="mb-3 p-3 bg-light rounded">
+                    <h6 class="fw-medium mb-3 text-warning"><i class="bi bi-calendar-x me-1"></i>申请改期</h6>
+                    <form method="post" action="{% url 'order_reschedule_request' order.id %}" hx-post="{% url 'order_reschedule_request' order.id %}" hx-target="#order-detail-panel" hx-swap="outerHTML">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <label class="form-label small fw-medium">{{ reschedule_form.reason.label }} <span class="text-danger">*</span></label>
+                            {{ reschedule_form.reason }}
+                            {% if reschedule_form.reason.errors %}<div class="text-danger small mt-1">{{ reschedule_form.reason.errors.0 }}</div>{% endif %}
+                        </div>
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label small fw-medium">{{ reschedule_form.new_available_start.label }} <span class="text-danger">*</span></label>
+                                {{ reschedule_form.new_available_start }}
+                                {% if reschedule_form.new_available_start.errors %}<div class="text-danger small mt-1">{{ reschedule_form.new_available_start.errors.0 }}</div>{% endif %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-medium">{{ reschedule_form.new_available_end.label }} <span class="text-danger">*</span></label>
+                                {{ reschedule_form.new_available_end }}
+                                {% if reschedule_form.new_available_end.errors %}<div class="text-danger small mt-1">{{ reschedule_form.new_available_end.errors.0 }}</div>{% endif %}
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-warning w-100" hx-disable>
+                            <i class="bi bi-calendar-x me-1"></i>提交改期申请
+                            <span class="spinner-border spinner-border-sm ms-2 htmx-indicator"></span>
+                        </button>
+                    </form>
+                </div>
+                {% endif %}
+
+                {% if can_review_reschedule and pending_reschedules %}
+                {% for req in pending_reschedules %}
+                <div class="mb-3 p-3 border border-warning rounded">
+                    <h6 class="fw-medium mb-2 text-warning"><i class="bi bi-calendar-x me-1"></i>改期申请审批</h6>
+                    <div class="small mb-2">
+                        <div><span class="text-muted">申请原因：</span>{{ req.reason }}</div>
+                        <div><span class="text-muted">新可上门时间：</span>{{ req.new_available_start|date:"Y-m-d H:i" }} ~ {{ req.new_available_end|date:"Y-m-d H:i" }}</div>
+                        <div><span class="text-muted">申请人：</span>{{ req.requester.get_full_name|default:req.requester.username }}</div>
+                    </div>
+                    <form method="post" action="{% url 'order_reschedule_approve' order.id req.id %}" hx-post="{% url 'order_reschedule_approve' order.id req.id %}" hx-target="#order-detail-panel" hx-swap="outerHTML">
+                        {% csrf_token %}
+                        <div class="mb-2">
+                            <label class="form-label small fw-medium">审批备注</label>
+                            <input type="text" name="review_note" class="form-control form-control-sm" placeholder="可选">
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-md-4">
+                                <label class="form-label small fw-medium">改派师傅</label>
+                                <select name="new_technician" class="form-select form-select-sm">
+                                    <option value="">不指定（仅批准改期）</option>
+                                    {% for t in active_technicians %}
+                                    <option value="{{ t.id }}">{{ t.name }}{% if t.specialty %}({{ t.specialty }}){% endif %}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small fw-medium">新预约开始</label>
+                                <input type="datetime-local" name="new_scheduled_start" class="form-control form-control-sm">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small fw-medium">新预约结束</label>
+                                <input type="datetime-local" name="new_scheduled_end" class="form-control form-control-sm">
+                            </div>
+                        </div>
+                        <div class="d-flex gap-2 mb-2">
+                            <button type="submit" class="btn btn-success btn-sm flex-fill" hx-disable>
+                                <i class="bi bi-check me-1"></i>批准/改派
+                            </button>
+                        </div>
+                    </form>
+                    <form method="post" action="{% url 'order_reschedule_reject' order.id req.id %}" hx-post="{% url 'order_reschedule_reject' order.id req.id %}" hx-target="#order-detail-panel" hx-swap="outerHTML">
+                        {% csrf_token %}
+                        <div class="mb-2">
+                            <input type="text" name="review_note" class="form-control form-control-sm" placeholder="驳回原因（可选）">
+                        </div>
+                        <button type="submit" class="btn btn-danger btn-sm w-100" hx-disable>
+                            <i class="bi bi-x me-1"></i>驳回
+                        </button>
+                    </form>
+                </div>
+                {% endfor %}
+                {% endif %}
+
+                {% if can_flag %}
+                <div class="mb-3 p-3 bg-light rounded">
+                    <h6 class="fw-medium mb-3 text-warning"><i class="bi bi-exclamation-triangle me-1"></i>师傅标记</h6>
+                    <form method="post" action="{% url 'order_technician_flag' order.id %}" hx-post="{% url 'order_technician_flag' order.id %}" hx-target="#order-detail-panel" hx-swap="outerHTML">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <label class="form-label small fw-medium">{{ flag_form.flag_type.label }} <span class="text-danger">*</span></label>
+                            {{ flag_form.flag_type }}
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-medium">{{ flag_form.suggestion.label }} <span class="text-danger">*</span></label>
+                            {{ flag_form.suggestion }}
+                            {% if flag_form.suggestion.errors %}<div class="text-danger small mt-1">{{ flag_form.suggestion.errors.0 }}</div>{% endif %}
+                        </div>
+                        <button type="submit" class="btn btn-warning w-100" hx-disable>
+                            <i class="bi bi-exclamation-triangle me-1"></i>提交标记
                             <span class="spinner-border spinner-border-sm ms-2 htmx-indicator"></span>
                         </button>
                     </form>

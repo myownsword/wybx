@@ -171,6 +171,16 @@ class WorkOrder(models.Model):
     is_rework = models.BooleanField('是否返工单', default=False)
     parent_order = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='rework_orders', verbose_name='原工单')
 
+    is_timeout = models.BooleanField('是否超时', default=False)
+    TIMEOUT_TYPE_ASSIGN = 'assign_timeout'
+    TIMEOUT_TYPE_ARRIVE = 'arrive_timeout'
+    TIMEOUT_TYPE_CHOICES = [
+        (TIMEOUT_TYPE_ASSIGN, '派工超时'),
+        (TIMEOUT_TYPE_ARRIVE, '到场超时'),
+    ]
+    timeout_type = models.CharField('超时类型', max_length=20, choices=TIMEOUT_TYPE_CHOICES, blank=True, default='')
+    timeout_at = models.DateTimeField('超时标记时间', null=True, blank=True)
+
     class Meta:
         verbose_name = '工单'
         verbose_name_plural = '工单'
@@ -221,6 +231,13 @@ class WorkOrder(models.Model):
     def can_close(self):
         return self.status == self.STATUS_CONFIRMED
 
+    def can_reschedule(self, user):
+        if self.status in [self.STATUS_IN_PROGRESS, self.STATUS_DONE, self.STATUS_CONFIRMED, self.STATUS_CLOSED]:
+            return False
+        if self.resident.user_id != user.id:
+            return False
+        return True
+
     def status_badge_class(self):
         return {
             self.STATUS_PENDING: 'bg-warning',
@@ -270,6 +287,12 @@ TIMELINE_REWORK_REQUEST = 'rework_request'
 TIMELINE_REWORK_CREATED = 'rework_created'
 TIMELINE_CLOSED = 'closed'
 TIMELINE_NOTE = 'note'
+TIMELINE_RESCHEDULE_REQUEST = 'reschedule_request'
+TIMELINE_RESCHEDULE_APPROVED = 'reschedule_approved'
+TIMELINE_RESCHEDULE_REJECTED = 'reschedule_rejected'
+TIMELINE_RESCHEDULE_REASSIGNED = 'reschedule_reassigned'
+TIMELINE_TECHNICIAN_FLAG = 'technician_flag'
+TIMELINE_TIMEOUT = 'timeout'
 
 TIMELINE_TYPES = [
     (TIMELINE_CREATED, '工单创建'),
@@ -282,6 +305,12 @@ TIMELINE_TYPES = [
     (TIMELINE_REWORK_CREATED, '返工单创建'),
     (TIMELINE_CLOSED, '工单关闭'),
     (TIMELINE_NOTE, '备注'),
+    (TIMELINE_RESCHEDULE_REQUEST, '申请改期'),
+    (TIMELINE_RESCHEDULE_APPROVED, '改期批准'),
+    (TIMELINE_RESCHEDULE_REJECTED, '改期驳回'),
+    (TIMELINE_RESCHEDULE_REASSIGNED, '改期改派'),
+    (TIMELINE_TECHNICIAN_FLAG, '师傅标记'),
+    (TIMELINE_TIMEOUT, '超时'),
 ]
 
 
@@ -313,6 +342,12 @@ class Timeline(models.Model):
             TIMELINE_REWORK_CREATED: 'bi-file-earmark-plus text-danger',
             TIMELINE_CLOSED: 'bi-x-circle text-secondary',
             TIMELINE_NOTE: 'bi-chat-left text-muted',
+            TIMELINE_RESCHEDULE_REQUEST: 'bi-calendar-x text-warning',
+            TIMELINE_RESCHEDULE_APPROVED: 'bi-calendar-check text-success',
+            TIMELINE_RESCHEDULE_REJECTED: 'bi-calendar-x text-danger',
+            TIMELINE_RESCHEDULE_REASSIGNED: 'bi-arrow-left-right text-info',
+            TIMELINE_TECHNICIAN_FLAG: 'bi-exclamation-triangle text-warning',
+            TIMELINE_TIMEOUT: 'bi-clock-history text-danger',
         }.get(self.event_type, 'bi-dot text-muted')
 
 
@@ -342,3 +377,76 @@ def generate_order_no():
     prefix = now.strftime('%Y%m%d%H%M')
     count = WorkOrder.objects.filter(created_at__year=now.year, created_at__month=now.month, created_at__day=now.day).count() + 1
     return f'GD{prefix}{count:04d}'
+
+
+class RescheduleRequest(models.Model):
+    STATUS_PENDING = 'pending'
+    STATUS_APPROVED = 'approved'
+    STATUS_REJECTED = 'rejected'
+    STATUS_REASSIGNED = 'reassigned'
+
+    STATUS_CHOICES = [
+        (STATUS_PENDING, '待审批'),
+        (STATUS_APPROVED, '已批准'),
+        (STATUS_REJECTED, '已驳回'),
+        (STATUS_REASSIGNED, '已改派'),
+    ]
+
+    order = models.ForeignKey(WorkOrder, on_delete=models.CASCADE, related_name='reschedule_requests', verbose_name='工单')
+    requester = models.ForeignKey(User, on_delete=models.PROTECT, related_name='reschedule_requests', verbose_name='申请人')
+    reason = models.TextField('改期原因')
+    new_available_start = models.DateTimeField('新可上门起始时间')
+    new_available_end = models.DateTimeField('新可上门结束时间')
+    status = models.CharField('审批状态', max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    reviewed_by = models.ForeignKey(User, on_delete=models.PROTECT, null=True, blank=True, related_name='reviewed_reschedules', verbose_name='审批人')
+    review_note = models.TextField('审批备注', blank=True, default='')
+    new_technician = models.ForeignKey(Technician, on_delete=models.PROTECT, null=True, blank=True, related_name='reassigned_reschedules', verbose_name='改派师傅')
+    new_scheduled_start = models.DateTimeField('新预约开始时间', null=True, blank=True)
+    new_scheduled_end = models.DateTimeField('新预约结束时间', null=True, blank=True)
+    created_at = models.DateTimeField('申请时间', default=timezone.now)
+    reviewed_at = models.DateTimeField('审批时间', null=True, blank=True)
+
+    class Meta:
+        verbose_name = '改期申请'
+        verbose_name_plural = '改期申请'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.order.order_no}-改期申请-{self.get_status_display()}'
+
+
+class TechnicianFlag(models.Model):
+    FLAG_CANNOT_CONTACT = 'cannot_contact'
+    FLAG_NOT_AT_HOME = 'not_at_home'
+
+    FLAG_CHOICES = [
+        (FLAG_CANNOT_CONTACT, '无法联系住户'),
+        (FLAG_NOT_AT_HOME, '住户不在家'),
+    ]
+
+    order = models.ForeignKey(WorkOrder, on_delete=models.CASCADE, related_name='technician_flags', verbose_name='工单')
+    flag_type = models.CharField('标记类型', max_length=20, choices=FLAG_CHOICES)
+    suggestion = models.TextField('下一步建议')
+    created_by = models.ForeignKey(User, on_delete=models.PROTECT, verbose_name='标记人')
+    created_at = models.DateTimeField('标记时间', default=timezone.now)
+
+    class Meta:
+        verbose_name = '师傅标记'
+        verbose_name_plural = '师傅标记'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.order.order_no}-{self.get_flag_type_display()}'
+
+
+class TimeoutConfig(models.Model):
+    urgency = models.CharField('紧急程度', max_length=20, choices=WorkOrder.URGENCY_CHOICES, unique=True)
+    assign_timeout_minutes = models.IntegerField('派工超时(分钟)', default=60)
+    arrive_timeout_minutes = models.IntegerField('到场超时(分钟)', default=120)
+
+    class Meta:
+        verbose_name = '超时配置'
+        verbose_name_plural = '超时配置'
+
+    def __str__(self):
+        return f'{self.get_urgency_display()}-派工{self.assign_timeout_minutes}分钟/到场{self.arrive_timeout_minutes}分钟'

@@ -2,6 +2,7 @@ from django.contrib import admin
 from .models import (
     Room, Resident, Technician, Dispatcher,
     Material, WorkOrder, OrderMaterial, Timeline,
+    RescheduleRequest, TechnicianFlag, TimeoutConfig,
 )
 
 
@@ -66,3 +67,28 @@ class TimelineAdmin(admin.ModelAdmin):
     search_fields = ('order__order_no', 'content')
     readonly_fields = ('created_at',)
     raw_id_fields = ('order', 'operator')
+
+
+@admin.register(RescheduleRequest)
+class RescheduleRequestAdmin(admin.ModelAdmin):
+    list_display = ('order', 'status', 'requester', 'created_at', 'reviewed_at')
+    list_filter = ('status',)
+    search_fields = ('order__order_no', 'reason', 'review_note')
+    readonly_fields = ('created_at', 'reviewed_at')
+    raw_id_fields = ('order', 'requester', 'reviewed_by', 'new_technician')
+
+
+@admin.register(TechnicianFlag)
+class TechnicianFlagAdmin(admin.ModelAdmin):
+    list_display = ('order', 'flag_type', 'created_by', 'created_at')
+    list_filter = ('flag_type',)
+    search_fields = ('order__order_no', 'suggestion')
+    readonly_fields = ('created_at',)
+    raw_id_fields = ('order', 'created_by')
+
+
+@admin.register(TimeoutConfig)
+class TimeoutConfigAdmin(admin.ModelAdmin):
+    list_display = ('urgency', 'assign_timeout_minutes', 'arrive_timeout_minutes')
+    list_filter = ('urgency',)
+    search_fields = ('urgency',)

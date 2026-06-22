@@ -63,6 +63,19 @@
             </div>
         </div>
     </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm {% if timeout_filter == '1' %}bg-danger text-white{% else %}bg-secondary text-white{% endif %}">
+            <div class="card-body p-3">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <div class="fs-6 opacity-75">超时工单</div>
+                        <div class="fs-2 fw-bold">{{ status_counts.timeout }}</div>
+                    </div>
+                    <i class="bi bi-clock-history fs-1 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="card border-0 shadow-sm mb-4">
@@ -85,6 +98,13 @@
                     {% for val, label in URGENCY_CHOICES %}
                     <option value="{{ val }}" {% if urgency_filter == val %}selected{% endif %}>{{ label }}</option>
                     {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-medium">超时筛选</label>
+                <select name="timeout" class="form-select" onchange="this.form.submit()">
+                    <option value="">全部</option>
+                    <option value="1" {% if timeout_filter == '1' %}selected{% endif %}>仅超时工单</option>
                 </select>
             </div>
             <div class="col-md-4">
@@ -139,6 +159,9 @@
                         </td>
                         <td>
                             <span class="badge badge-lg {{ o.status_badge_class }}">{{ o.get_status_display }}</span>
+                            {% if o.is_timeout %}
+                            <span class="badge bg-danger badge-lg ms-1"><i class="bi bi-clock-history me-1"></i>超时</span>
+                            {% endif %}
                         </td>
                         <td>
                             {% if o.technician %}

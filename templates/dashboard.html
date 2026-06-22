@@ -59,6 +59,32 @@
             </div>
         </div>
     </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm bg-danger text-white">
+            <div class="card-body p-4">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <div class="small opacity-75">本月超时</div>
+                        <div class="fs-2 fw-bold">{{ month_timeout_count }}</div>
+                    </div>
+                    <i class="bi bi-clock-history fs-1 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm bg-secondary text-white">
+            <div class="card-body p-4">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <div class="small opacity-75">累计超时</div>
+                        <div class="fs-2 fw-bold">{{ total_timeout_count }}</div>
+                    </div>
+                    <i class="bi bi-exclamation-triangle fs-1 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="row g-4">
@@ -99,9 +125,14 @@
         <div class="card border-0 shadow-sm">
             <div class="card-header bg-white d-flex align-items-center justify-content-between">
                 <h6 class="fw-bold mb-0"><i class="bi bi-box-seam text-warning me-2"></i>本月耗材 TOP10</h6>
-                <a href="{% url 'export_materials' %}" class="btn btn-sm btn-outline-primary">
-                    <i class="bi bi-download me-1"></i>导出完整CSV
-                </a>
+                <div class="d-flex gap-2">
+                    <a href="{% url 'export_timeout' %}" class="btn btn-sm btn-outline-danger">
+                        <i class="bi bi-download me-1"></i>导出超时工单CSV
+                    </a>
+                    <a href="{% url 'export_materials' %}" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-download me-1"></i>导出耗材CSV
+                    </a>
+                </div>
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive">

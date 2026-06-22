@@ -1,5 +1,5 @@
 from django import forms
-from .models import WorkOrder, Room, Technician, OrderMaterial, Material
+from .models import WorkOrder, Room, Technician, OrderMaterial, Material, RescheduleRequest, TechnicianFlag
 from django.utils import timezone
 from datetime import datetime, timedelta
 
@@ -152,3 +152,69 @@ class ReworkForm(forms.Form):
             if end < timezone.now():
                 raise forms.ValidationError('可上门结束时间不能早于当前时间')
         return cleaned_data
+
+
+class RescheduleRequestForm(forms.Form):
+    reason = forms.CharField(label='改期原因', widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '请说明改期原因...'}))
+    new_available_start = forms.DateTimeField(label='新可上门起始时间', widget=DateTimeLocalInput(attrs={'class': 'form-control'}))
+    new_available_end = forms.DateTimeField(label='新可上门结束时间', widget=DateTimeLocalInput(attrs={'class': 'form-control'}))
+
+    def __init__(self, *args, **kwargs):
+        self.order = kwargs.pop('order', None)
+        super().__init__(*args, **kwargs)
+
+    def clean(self):
+        cleaned_data = super().clean()
+        start = cleaned_data.get('new_available_start')
+        end = cleaned_data.get('new_available_end')
+        if start and end:
+            if start >= end:
+                raise forms.ValidationError('新可上门结束时间必须晚于起始时间')
+            if end < timezone.now():
+                raise forms.ValidationError('新可上门结束时间不能早于当前时间')
+        return cleaned_data
+
+
+class RescheduleReviewForm(forms.Form):
+    review_note = forms.CharField(label='审批备注', required=False, widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 2, 'placeholder': '审批备注（可选）'}))
+    new_technician = forms.ModelChoiceField(
+        label='改派师傅',
+        queryset=Technician.objects.filter(is_active=True),
+        required=False,
+        widget=forms.Select(attrs={'class': 'form-select'})
+    )
+    new_scheduled_start = forms.DateTimeField(label='新预约开始时间', required=False, widget=DateTimeLocalInput(attrs={'class': 'form-control'}))
+    new_scheduled_end = forms.DateTimeField(label='新预约结束时间', required=False, widget=DateTimeLocalInput(attrs={'class': 'form-control'}))
+
+    def __init__(self, *args, **kwargs):
+        self.reschedule_request = kwargs.pop('reschedule_request', None)
+        super().__init__(*args, **kwargs)
+
+    def clean(self):
+        cleaned_data = super().clean()
+        tech = cleaned_data.get('new_technician')
+        start = cleaned_data.get('new_scheduled_start')
+        end = cleaned_data.get('new_scheduled_end')
+        if tech or start or end:
+            if not (tech and start and end):
+                raise forms.ValidationError('改派需同时填写师傅和新预约时间')
+            if start >= end:
+                raise forms.ValidationError('结束时间必须晚于开始时间')
+            req = self.reschedule_request
+            if req:
+                if start < req.new_available_start or end > req.new_available_end:
+                    raise forms.ValidationError(
+                        f'预约时间需在住户新可上门时间段内（{req.new_available_start.strftime("%Y-%m-%d %H:%M")} ~ {req.new_available_end.strftime("%Y-%m-%d %H:%M")}）'
+                    )
+                if tech:
+                    has_conflict, conflict_order = tech.has_conflict(start, end, req.order.id)
+                    if has_conflict:
+                        raise forms.ValidationError(
+                            f'师傅「{tech.name}」在此时间段已有工单：{conflict_order.order_no}，请重新选择！'
+                        )
+        return cleaned_data
+
+
+class TechnicianFlagForm(forms.Form):
+    flag_type = forms.ChoiceField(label='标记类型', choices=TechnicianFlag.FLAG_CHOICES, widget=forms.Select(attrs={'class': 'form-select'}))
+    suggestion = forms.CharField(label='下一步建议', widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '请给出下一步处理建议...'}))

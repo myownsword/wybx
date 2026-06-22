@@ -20,10 +20,14 @@ import zoneinfo
 
 from repair.models import (
     Room, Resident, Technician, Dispatcher, Material,
-    WorkOrder, OrderMaterial, Timeline,
+    WorkOrder, OrderMaterial, Timeline, RescheduleRequest,
+    TechnicianFlag, TimeoutConfig,
     generate_order_no, add_timeline,
     TIMELINE_CREATED, TIMELINE_ASSIGNED, TIMELINE_ARRIVED,
     TIMELINE_FINISHED, TIMELINE_CONFIRMED,
+    TIMELINE_RESCHEDULE_REQUEST, TIMELINE_RESCHEDULE_APPROVED,
+    TIMELINE_RESCHEDULE_REJECTED, TIMELINE_RESCHEDULE_REASSIGNED,
+    TIMELINE_TECHNICIAN_FLAG, TIMELINE_TIMEOUT,
 )
 
 SH_TZ = zoneinfo.ZoneInfo('Asia/Shanghai')
@@ -113,8 +117,8 @@ def main():
 
     step('3.1 住户(张三)提交报修')
     room = resident.room
-    avail_s_local = now_local + timedelta(hours=48)
-    avail_e_local = now_local + timedelta(hours=58)
+    avail_s_local = now_local + timedelta(days=20)
+    avail_e_local = now_local + timedelta(days=20, hours=10)
     resp = client.post(reverse('order_create'), {
         'building': room.building, 'unit': room.unit, 'room_number': room.room_number,
         'resident_name': resident.name, 'contact_phone': resident.phone,
@@ -172,11 +176,11 @@ def main():
     all_pass &= verify(conflict_ok, f'时间重叠派工冲突被拦截：{"是" if conflict_ok else "否"} (工单状态={conflict_order.get_status_display()})')
     conflict_order.refresh_from_db()
     all_pass &= verify(conflict_order.status == WorkOrder.STATUS_PENDING, f'冲突工单状态未变={conflict_order.get_status_display()}')
-    # 错开时间（用更靠后的时间避免和历史测试残留冲突）
+    # 错开时间（用更靠后的时间避免和历史测试残留冲突，且在可上门时间范围内）
     resp = disp_client.post(reverse('order_assign', args=[conflict_order.id]), {
         'technician': tech.id,
-        'scheduled_start': fmt_dt(now_local + timedelta(hours=120)),
-        'scheduled_end': fmt_dt(now_local + timedelta(hours=122)),
+        'scheduled_start': fmt_dt(avail_s_local + timedelta(hours=100)),
+        'scheduled_end': fmt_dt(avail_s_local + timedelta(hours=102)),
     }, follow=True)
     conflict_order.refresh_from_db()
     all_pass &= verify(conflict_order.status == WorkOrder.STATUS_ASSIGNED, '错开时间派工成功')
@@ -376,6 +380,276 @@ def main():
     }, follow=True)
     lisi_order.refresh_from_db()
     all_pass &= verify(lisi_order.status == WorkOrder.STATUS_DONE, f'张三确认李四工单被正确阻止(状态仍={lisi_order.get_status_display()})')
+
+    # ========== 9. 改期功能验证 ==========
+    log('步骤9：预约改期功能 - 正常改期、冲突改期、越权申请', 'STEP')
+    step('9.1 住户提交改期申请')
+    zhangsan_user = User.objects.get(username='zhangsan')
+    client = Client()
+    client.force_login(zhangsan_user)
+    zhangsan = zhangsan_user.resident_profile
+
+    reschedule_order = WorkOrder.objects.create(
+        order_no=generate_order_no(),
+        room=zhangsan.room, resident=zhangsan,
+        problem_type='electric', urgency='normal',
+        description='【改期测试】插座松动需要维修',
+        available_start=now_utc + timedelta(hours=48),
+        available_end=now_utc + timedelta(hours=58),
+        contact_phone=zhangsan.phone, status=WorkOrder.STATUS_PENDING,
+    )
+    new_avail_s = now_local + timedelta(days=3, hours=10)
+    new_avail_e = now_local + timedelta(days=3, hours=16)
+    resp = client.post(reverse('order_reschedule_request', args=[reschedule_order.id]), {
+        'reason': '明天不在家，改到后天',
+        'new_available_start': fmt_dt(new_avail_s),
+        'new_available_end': fmt_dt(new_avail_e),
+    }, follow=True)
+    reschedule_order.refresh_from_db()
+    all_pass &= verify(reschedule_order.reschedule_requests.count() == 1, '改期申请已创建')
+    req = reschedule_order.reschedule_requests.first()
+    all_pass &= verify(req.status == RescheduleRequest.STATUS_PENDING, f'改期申请状态={req.get_status_display()}')
+    all_pass &= verify(reschedule_order.timelines.filter(event_type=TIMELINE_RESCHEDULE_REQUEST).exists(), '改期申请时间线存在')
+
+    step('9.2 调度员批准改期（仅改期，不改派）')
+    disp_user = User.objects.get(username='zhaoliu')
+    disp_client = Client()
+    disp_client.force_login(disp_user)
+    resp = disp_client.post(reverse('order_reschedule_approve', args=[reschedule_order.id, req.id]), {
+        'review_note': '同意改期',
+    }, follow=True)
+    req.refresh_from_db()
+    reschedule_order.refresh_from_db()
+    all_pass &= verify(req.status == RescheduleRequest.STATUS_APPROVED, f'改期已批准，状态={req.get_status_display()}')
+    all_pass &= verify(reschedule_order.status == WorkOrder.STATUS_PENDING, '批准后工单回到待派工状态')
+    all_pass &= verify(reschedule_order.technician is None, '批准后取消原派工')
+    all_pass &= verify(reschedule_order.timelines.filter(event_type=TIMELINE_RESCHEDULE_APPROVED).exists(), '改期批准时间线存在')
+
+    step('9.3 改期并改派新师傅')
+    tech = User.objects.get(username='lishi').technician_profile
+    tech2 = User.objects.get(username='wangwu').technician_profile
+
+    reschedule_order2 = WorkOrder.objects.create(
+        order_no=generate_order_no(),
+        room=zhangsan.room, resident=zhangsan,
+        problem_type='plumbing', urgency='high',
+        description='【改期改派测试】水管漏水',
+        available_start=now_utc + timedelta(hours=24),
+        available_end=now_utc + timedelta(hours=30),
+        contact_phone=zhangsan.phone, status=WorkOrder.STATUS_ASSIGNED,
+        technician=tech, dispatcher=disp_user.dispatcher_profile,
+        scheduled_start=now_utc + timedelta(hours=25),
+        scheduled_end=now_utc + timedelta(hours=27),
+    )
+    old_tech_name = tech.name
+
+    new_avail_s2 = now_local + timedelta(days=2, hours=9)
+    new_avail_e2 = now_local + timedelta(days=2, hours=18)
+    resp = client.post(reverse('order_reschedule_request', args=[reschedule_order2.id]), {
+        'reason': '明天要上班，改到后天',
+        'new_available_start': fmt_dt(new_avail_s2),
+        'new_available_end': fmt_dt(new_avail_e2),
+    }, follow=True)
+    req2 = reschedule_order2.reschedule_requests.first()
+
+    new_sch_s = now_local + timedelta(days=2, hours=10)
+    new_sch_e = now_local + timedelta(days=2, hours=12)
+    resp = disp_client.post(reverse('order_reschedule_approve', args=[reschedule_order2.id, req2.id]), {
+        'review_note': '同意改期并改派',
+        'new_technician': tech2.id,
+        'new_scheduled_start': fmt_dt(new_sch_s),
+        'new_scheduled_end': fmt_dt(new_sch_e),
+    }, follow=True)
+    req2.refresh_from_db()
+    reschedule_order2.refresh_from_db()
+    all_pass &= verify(req2.status == RescheduleRequest.STATUS_REASSIGNED, f'改期改派成功，状态={req2.get_status_display()}')
+    all_pass &= verify(reschedule_order2.technician_id == tech2.id, f'新师傅={tech2.name}')
+    all_pass &= verify(req2.new_technician_id == tech2.id, '改派记录保留新师傅')
+    all_pass &= verify(req2.new_scheduled_start is not None, '改派记录保留新预约时间')
+    tl_reassigned = reschedule_order2.timelines.filter(event_type=TIMELINE_RESCHEDULE_REASSIGNED).first()
+    all_pass &= verify(tl_reassigned is not None, '改派时间线存在')
+    all_pass &= verify(old_tech_name in tl_reassigned.content, f'原记录保留：时间线中包含原师傅「{old_tech_name}」')
+
+    step('9.4 冲突改期失败')
+    conflict_order = WorkOrder.objects.create(
+        order_no=generate_order_no(),
+        room=zhangsan.room, resident=zhangsan,
+        problem_type='door_lock', urgency='normal',
+        description='【冲突测试】门锁维修',
+        available_start=now_utc + timedelta(hours=100),
+        available_end=now_utc + timedelta(hours=120),
+        contact_phone=zhangsan.phone, status=WorkOrder.STATUS_PENDING,
+    )
+    client.post(reverse('order_reschedule_request', args=[conflict_order.id]), {
+        'reason': '测试冲突',
+        'new_available_start': fmt_dt(now_local + timedelta(hours=100)),
+        'new_available_end': fmt_dt(now_local + timedelta(hours=120)),
+    }, follow=True)
+    req3 = conflict_order.reschedule_requests.first()
+
+    conflict_time_s = now_local + timedelta(hours=105)
+    conflict_time_e = now_local + timedelta(hours=107)
+    resp = disp_client.post(reverse('order_reschedule_approve', args=[conflict_order.id, req3.id]), {
+        'review_note': '测试冲突',
+        'new_technician': tech2.id,
+        'new_scheduled_start': fmt_dt(new_sch_s),
+        'new_scheduled_end': fmt_dt(new_sch_e),
+    })
+    req3.refresh_from_db()
+    conflict_order.refresh_from_db()
+    conflict_blocked = req3.status == RescheduleRequest.STATUS_PENDING and conflict_order.status != WorkOrder.STATUS_ASSIGNED
+    all_pass &= verify(conflict_blocked, f'冲突时间段改派被正确拦截：{"是" if conflict_blocked else "否"}')
+
+    step('9.5 越权申请改期失败')
+    lisi_user = User.objects.get(username='lisi')
+    lisi_client = Client()
+    lisi_client.force_login(lisi_user)
+    order_for_other = WorkOrder.objects.create(
+        order_no=generate_order_no(),
+        room=zhangsan.room, resident=zhangsan,
+        problem_type='appliance', urgency='low',
+        description='【越权测试】空调维修',
+        available_start=now_utc + timedelta(hours=72),
+        available_end=now_utc + timedelta(hours=80),
+        contact_phone=zhangsan.phone, status=WorkOrder.STATUS_PENDING,
+    )
+    original_req_count = order_for_other.reschedule_requests.count()
+    resp = lisi_client.post(reverse('order_reschedule_request', args=[order_for_other.id]), {
+        'reason': '越权申请改期',
+        'new_available_start': fmt_dt(now_local + timedelta(hours=96)),
+        'new_available_end': fmt_dt(now_local + timedelta(hours=100)),
+    }, follow=True)
+    order_for_other.refresh_from_db()
+    all_pass &= verify(order_for_other.reschedule_requests.count() == original_req_count, '非报修住户改期申请被正确拦截')
+
+    step('9.6 状态限制改期失败')
+    for status in [WorkOrder.STATUS_IN_PROGRESS, WorkOrder.STATUS_DONE,
+                   WorkOrder.STATUS_CONFIRMED, WorkOrder.STATUS_CLOSED]:
+        restricted_order = WorkOrder.objects.create(
+            order_no=generate_order_no(),
+            room=zhangsan.room, resident=zhangsan,
+            problem_type='other', urgency='low',
+            description=f'【状态限制测试】{status}状态工单',
+            available_start=now_utc + timedelta(hours=10),
+            available_end=now_utc + timedelta(hours=20),
+            contact_phone=zhangsan.phone, status=status,
+            technician=tech if status != WorkOrder.STATUS_PENDING else None,
+        )
+        cnt_before = restricted_order.reschedule_requests.count()
+        resp = client.post(reverse('order_reschedule_request', args=[restricted_order.id]), {
+            'reason': f'测试{status}状态改期',
+            'new_available_start': fmt_dt(now_local + timedelta(hours=30)),
+            'new_available_end': fmt_dt(now_local + timedelta(hours=36)),
+        }, follow=True)
+        restricted_order.refresh_from_db()
+        status_label = dict(WorkOrder.STATUS_CHOICES).get(status, status)
+        all_pass &= verify(restricted_order.reschedule_requests.count() == cnt_before,
+                          f'{status_label}状态改期被正确拦截')
+
+    # ========== 10. 师傅标记功能验证 ==========
+    log('步骤10：师傅标记功能 - 无法联系、住户不在家', 'STEP')
+    tech_user = User.objects.get(username='lishi')
+    tech_client = Client()
+    tech_client.force_login(tech_user)
+
+    flag_order = WorkOrder.objects.create(
+        order_no=generate_order_no(),
+        room=zhangsan.room, resident=zhangsan,
+        problem_type='electric', urgency='high',
+        description='【标记测试】电路跳闸',
+        available_start=now_utc + timedelta(hours=2),
+        available_end=now_utc + timedelta(hours=8),
+        contact_phone=zhangsan.phone, status=WorkOrder.STATUS_ASSIGNED,
+        technician=tech, dispatcher=disp_user.dispatcher_profile,
+        scheduled_start=now_utc + timedelta(hours=3),
+        scheduled_end=now_utc + timedelta(hours=5),
+    )
+    resp = tech_client.post(reverse('order_technician_flag', args=[flag_order.id]), {
+        'flag_type': 'cannot_contact',
+        'suggestion': '电话多次拨打无人接听，建议稍后再联系或发短信通知',
+    }, follow=True)
+    flag_order.refresh_from_db()
+    all_pass &= verify(flag_order.technician_flags.count() == 1, '师傅标记已创建')
+    flag = flag_order.technician_flags.first()
+    all_pass &= verify(flag.flag_type == 'cannot_contact', f'标记类型={flag.get_flag_type_display()}')
+    all_pass &= verify(flag.suggestion is not None and len(flag.suggestion) > 0, '下一步建议已记录')
+    all_pass &= verify(flag_order.timelines.filter(event_type=TIMELINE_TECHNICIAN_FLAG).exists(), '师傅标记时间线存在')
+
+    # ========== 11. 超时升级功能验证 ==========
+    log('步骤11：超时升级功能 - 自动标记、持久化、列表筛选、看板统计', 'STEP')
+    step('11.1 超时配置检查')
+    configs = TimeoutConfig.objects.all()
+    all_pass &= verify(configs.count() == 4, f'超时配置数量：{configs.count()}/4')
+    urgent_cfg = TimeoutConfig.objects.filter(urgency='urgent').first()
+    all_pass &= verify(urgent_cfg is not None and urgent_cfg.assign_timeout_minutes == 15, '特急派工超时=15分钟')
+
+    step('11.2 派工超时自动标记')
+    from repair.views import check_and_mark_timeouts
+    timeout_order = WorkOrder.objects.create(
+        order_no=generate_order_no(),
+        room=zhangsan.room, resident=zhangsan,
+        problem_type='plumbing', urgency='urgent',
+        description='【超时测试】水管爆裂',
+        available_start=now_utc + timedelta(hours=1),
+        available_end=now_utc + timedelta(hours=4),
+        contact_phone=zhangsan.phone, status=WorkOrder.STATUS_PENDING,
+        created_at=now_utc - timedelta(minutes=30),
+    )
+    check_and_mark_timeouts()
+    timeout_order.refresh_from_db()
+    all_pass &= verify(timeout_order.is_timeout == True, '派工超时已自动标记')
+    all_pass &= verify(timeout_order.timeout_type == WorkOrder.TIMEOUT_TYPE_ASSIGN, f'超时类型={timeout_order.get_timeout_type_display()}')
+    all_pass &= verify(timeout_order.timeout_at is not None, '超时标记时间已记录')
+    all_pass &= verify(timeout_order.timelines.filter(event_type=TIMELINE_TIMEOUT).exists(), '超时时间线存在')
+
+    step('11.3 超时状态持久化验证')
+    timeout_order_id = timeout_order.id
+    reloaded = WorkOrder.objects.get(id=timeout_order_id)
+    all_pass &= verify(reloaded.is_timeout == True, '重启后超时状态持久化')
+    all_pass &= verify(reloaded.timeout_type == WorkOrder.TIMEOUT_TYPE_ASSIGN, '重启后超时类型持久化')
+    all_pass &= verify(reloaded.timeout_at is not None, '重启后超时时间持久化')
+
+    step('11.4 到场超时自动标记')
+    arrive_timeout_order = WorkOrder.objects.create(
+        order_no=generate_order_no(),
+        room=zhangsan.room, resident=zhangsan,
+        problem_type='electric', urgency='high',
+        description='【到场超时测试】停电',
+        available_start=now_utc - timedelta(hours=3),
+        available_end=now_utc + timedelta(hours=1),
+        contact_phone=zhangsan.phone, status=WorkOrder.STATUS_ASSIGNED,
+        technician=tech, dispatcher=disp_user.dispatcher_profile,
+        scheduled_start=now_utc - timedelta(hours=2),
+        scheduled_end=now_utc - timedelta(hours=1),
+    )
+    check_and_mark_timeouts()
+    arrive_timeout_order.refresh_from_db()
+    all_pass &= verify(arrive_timeout_order.is_timeout == True, '到场超时已自动标记')
+    all_pass &= verify(arrive_timeout_order.timeout_type == WorkOrder.TIMEOUT_TYPE_ARRIVE, f'超时类型={arrive_timeout_order.get_timeout_type_display()}')
+
+    step('11.5 超时列表筛选')
+    list_resp = disp_client.get(reverse('order_list'), {'timeout': '1'})
+    all_pass &= verify(list_resp.status_code == 200, '超时筛选HTTP 200')
+    list_content = list_resp.content.decode('utf-8', errors='ignore')
+    all_pass &= verify('超时' in list_content, '列表显示超时标识')
+    all_pass &= verify(timeout_order.order_no in list_content, '超时工单出现在筛选列表中')
+
+    step('11.6 看板统计')
+    dash_resp = disp_client.get(reverse('dashboard'))
+    all_pass &= verify(dash_resp.status_code == 200, '看板HTTP 200')
+    dash_content = dash_resp.content.decode('utf-8', errors='ignore')
+    all_pass &= verify('本月超时' in dash_content or '超时工单' in dash_content or 'month_timeout' in dash_content.lower(), '看板包含超时统计')
+
+    # ========== 12. 导出本月超时工单CSV ==========
+    log('步骤12：导出本月超时工单CSV', 'STEP')
+    export_resp = disp_client.get(reverse('export_timeout'), {'year': now_local.year, 'month': now_local.month})
+    all_pass &= verify(export_resp.status_code == 200, f'超时CSV导出HTTP {export_resp.status_code}')
+    all_pass &= verify('text/csv' in export_resp.get('Content-Type', ''), 'Content-Type=text/csv')
+    csv_text = export_resp.content.decode('utf-8-sig')
+    all_pass &= verify('工单号' in csv_text and '超时类型' in csv_text, 'CSV表头包含工单号和超时类型')
+    all_pass &= verify(timeout_order.order_no in csv_text, 'CSV包含超时工单号')
+    all_pass &= verify(len(csv_text.strip().split('\n')) >= 2, f'CSV行数≥2')
+    log(f'  ✅ 超时CSV导出成功: {len(csv_text.strip().split(chr(10)))}行, {len(csv_text)}字符', 'OK')
 
     print('\n' + '=' * 70)
     if all_pass:
