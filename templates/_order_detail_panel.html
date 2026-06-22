@@ -176,27 +176,36 @@
                 {% if can_assign %}
                 <div class="mb-3 p-3 bg-light rounded">
                     <h6 class="fw-medium mb-3 text-primary"><i class="bi bi-person-check me-1"></i>分派维修师傅</h6>
-                    <form method="post" action="{% url 'order_assign' order.id %}" hx-post="{% url 'order_assign' order.id %}">
+                    <form method="post" action="{% url 'order_assign' order.id %}" hx-post="{% url 'order_assign' order.id %}" hx-target="#order-detail-panel" hx-swap="outerHTML">
                         {% csrf_token %}
                         <div class="row g-3">
                             <div class="col-md-6">
-                                <label class="form-label small fw-medium">维修师傅</label>
-                                <select name="technician" class="form-select" required>
-                                    {% for tech in can_assign and request.user.dispatcher_profile and techs or '' %}
-                                    {% endfor %}
-                                </select>
+                                <label class="form-label small fw-medium">{{ assign_form.technician.label }}</label>
+                                {{ assign_form.technician }}
+                                {% if assign_form.technician.errors %}<div class="text-danger small mt-1">{{ assign_form.technician.errors.0 }}</div>{% endif %}
                             </div>
                             <div class="col-md-3">
-                                <label class="form-label small fw-medium">预约上门时间</label>
-                                <input type="datetime-local" name="scheduled_start" class="form-control" required>
+                                <label class="form-label small fw-medium">{{ assign_form.scheduled_start.label }}</label>
+                                {{ assign_form.scheduled_start }}
+                                {% if assign_form.scheduled_start.errors %}<div class="text-danger small mt-1">{{ assign_form.scheduled_start.errors.0 }}</div>{% endif %}
                             </div>
                             <div class="col-md-3">
-                                <label class="form-label small fw-medium">预约结束时间</label>
-                                <input type="datetime-local" name="scheduled_end" class="form-control" required>
+                                <label class="form-label small fw-medium">{{ assign_form.scheduled_end.label }}</label>
+                                {{ assign_form.scheduled_end }}
+                                {% if assign_form.scheduled_end.errors %}<div class="text-danger small mt-1">{{ assign_form.scheduled_end.errors.0 }}</div>{% endif %}
                             </div>
                             <div class="col-md-12">
-                                <button type="submit" class="btn btn-primary w-100"><i class="bi bi-send me-1"></i>确认派工
-                                <span class="spinner-border spinner-border-sm ms-2"></span></button>
+                                <div id="assign-form-errors">
+                                {% if assign_form.non_field_errors %}
+                                    {% for err in assign_form.non_field_errors %}
+                                    <div class="alert alert-danger py-2 small mb-2">{{ err }}</div>
+                                    {% endfor %}
+                                {% endif %}
+                                </div>
+                                <button type="submit" class="btn btn-primary w-100" hx-disable>
+                                    <i class="bi bi-send me-1"></i>确认派工
+                                    <span class="spinner-border spinner-border-sm ms-2 htmx-indicator"></span>
+                                </button>
                             </div>
                         </div>
                     </form>
@@ -206,14 +215,16 @@
                 {% if can_start %}
                 <div class="mb-3 p-3 bg-light rounded">
                     <h6 class="fw-medium mb-3 text-info"><i class="bi bi-geo-alt me-1"></i>确认到场</h6>
-                    <form method="post" action="{% url 'order_start' order.id %}" hx-post="{% url 'order_start' order.id %}">
+                    <form method="post" action="{% url 'order_start' order.id %}" hx-post="{% url 'order_start' order.id %}" hx-target="#order-detail-panel" hx-swap="outerHTML">
                         {% csrf_token %}
                         <div class="mb-3">
-                            <label class="form-label small fw-medium">到场备注（可选）</label>
-                            <textarea name="arrival_note" class="form-control" rows="2" placeholder="记录到场情况..."></textarea>
+                            <label class="form-label small fw-medium">{{ start_form.arrival_note.label }}</label>
+                            {{ start_form.arrival_note }}
                         </div>
-                        <button type="submit" class="btn btn-info text-white w-100"><i class="bi bi-geo-fill me-1"></i>我已到场，开始处理
-                        <span class="spinner-border spinner-border-sm ms-2"></span></button>
+                        <button type="submit" class="btn btn-info text-white w-100" hx-disable>
+                            <i class="bi bi-geo-fill me-1"></i>我已到场，开始处理
+                            <span class="spinner-border spinner-border-sm ms-2 htmx-indicator"></span>
+                        </button>
                     </form>
                 </div>
                 {% endif %}
@@ -221,18 +232,50 @@
                 {% if can_finish %}
                 <div class="mb-3 p-3 bg-light rounded">
                     <h6 class="fw-medium mb-3 text-success"><i class="bi bi-check-circle me-1"></i>完工登记</h6>
-                    <form method="post" action="{% url 'order_finish' order.id %}" hx-post="{% url 'order_finish' order.id %}">
+                    <form method="post" action="{% url 'order_finish' order.id %}" hx-post="{% url 'order_finish' order.id %}" hx-target="#order-detail-panel" hx-swap="outerHTML">
                         {% csrf_token %}
                         <div class="mb-3">
-                            <label class="form-label small fw-medium">处理结果 <span class="text-danger">*</span></label>
-                            <textarea name="result" class="form-control" rows="5" placeholder="请详细描述处理过程和结果..." required></textarea>
+                            <label class="form-label small fw-medium">{{ finish_form.result.label }} <span class="text-danger">*</span></label>
+                            {{ finish_form.result }}
+                            {% if finish_form.result.errors %}<div class="text-danger small mt-1">{{ finish_form.result.errors.0 }}</div>{% endif %}
                         </div>
                         <div class="mb-3">
-                            <label class="form-label small fw-medium">照片说明（占位）</label>
-                            <textarea name="photo_placeholder" class="form-control" rows="3" placeholder="此处填写拍摄照片的说明"></textarea>
+                            <label class="form-label small fw-medium">{{ finish_form.photo_placeholder.label }}</label>
+                            {{ finish_form.photo_placeholder }}
                         </div>
-                        <button type="submit" class="btn btn-success w-100"><i class="bi bi-flag-fill me-1"></i>完工提交
-                        <span class="spinner-border spinner-border-sm ms-2"></span></button>
+
+                        <div class="mb-3">
+                            <label class="form-label small fw-medium"><i class="bi bi-box-seam me-1"></i>耗材登记（可选，可多行）</label>
+                            <div class="border rounded p-3 bg-white">
+                                {{ material_formset.management_form }}
+                                <div id="material-forms">
+                                    {% for form in material_formset %}
+                                    <div class="material-form row g-2 mb-2 align-items-end">
+                                        <div class="d-none">{{ form.id }}</div>
+                                        <div class="col-md-5">
+                                            <label class="form-label small text-muted">耗材名称</label>
+                                            {{ form.material }}
+                                        </div>
+                                        <div class="col-md-2">
+                                            <label class="form-label small text-muted">用量</label>
+                                            {{ form.quantity }}
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label small text-muted">备注</label>
+                                            {{ form.remark }}
+                                        </div>
+                                        <div class="col-md-1">
+                                            {% if material_formset.can_delete and form.instance.pk %}{{ form.DELETE }}{% endif %}
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-success w-100" hx-disable>
+                            <i class="bi bi-flag-fill me-1"></i>完工提交
+                            <span class="spinner-border spinner-border-sm ms-2 htmx-indicator"></span>
+                        </button>
                     </form>
                 </div>
                 {% endif %}
@@ -240,54 +283,63 @@
                 {% if can_confirm %}
                 <div class="mb-3 p-3 bg-light rounded">
                     <h6 class="fw-medium mb-3 text-success"><i class="bi bi-hand-thumbs-up me-1"></i>确认服务结果</h6>
-                    <form method="post" action="{% url 'order_confirm' order.id %}" hx-post="{% url 'order_confirm' order.id %}">
+                    <form method="post" action="{% url 'order_confirm' order.id %}" hx-post="{% url 'order_confirm' order.id %}" hx-target="#order-detail-panel" hx-swap="outerHTML">
                         {% csrf_token %}
                         <div class="mb-3">
-                            <label class="form-label fw-medium small">服务满意度 <span class="text-danger">*</span></label>
+                            <label class="form-label fw-medium small">{{ confirm_form.satisfaction.label }} <span class="text-danger">*</span></label>
                             <div class="d-flex flex-column gap-1">
-                                <div class="form-check"><input class="form-check-input" type="radio" name="satisfaction" id="s1" value="1" required><label class="form-check-label" for="s1">1星 - 非常不满意</label></div>
-                                <div class="form-check"><input class="form-check-input" type="radio" name="satisfaction" id="s2" value="2"><label class="form-check-label" for="s2">2星 - 不满意</label></div>
-                                <div class="form-check"><input class="form-check-input" type="radio" name="satisfaction" id="s3" value="3"><label class="form-check-label" for="s3">3星 - 一般</label></div>
-                                <div class="form-check"><input class="form-check-input" type="radio" name="satisfaction" id="s4" value="4"><label class="form-check-label" for="s4">4星 - 满意</label></div>
-                                <div class="form-check"><input class="form-check-input" type="radio" name="satisfaction" id="s5" value="5"><label class="form-check-label" for="s5">5星 - 非常满意</label></div>
+                                {% for val, label in confirm_form.fields.satisfaction.choices %}
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="satisfaction" id="sat{{ val }}" value="{{ val }}" required>
+                                    <label class="form-check-label" for="sat{{ val }}">{{ label }}</label>
+                                </div>
+                                {% endfor %}
                             </div>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label small fw-medium">评价备注（可选）</label>
-                            <textarea name="confirm_remark" class="form-control" rows="3"></textarea>
+                            <label class="form-label small fw-medium">{{ confirm_form.confirm_remark.label }}</label>
+                            {{ confirm_form.confirm_remark }}
                         </div>
                         <div class="d-grid gap-2 d-md-block">
-                            <button type="submit" class="btn btn-success me-2"><i class="bi bi-hand-thumbs-up me-1"></i>确认满意
-                            <span class="spinner-border spinner-border-sm ms-2"></span></button>
-                            <button type="button" class="btn btn-outline-danger" data-bs-toggle="collapse" data-bs-target="#reworkCollapse2">
+                            <button type="submit" class="btn btn-success me-2" hx-disable>
+                                <i class="bi bi-hand-thumbs-up me-1"></i>确认满意
+                                <span class="spinner-border spinner-border-sm ms-2 htmx-indicator"></span>
+                            </button>
+                            <button type="button" class="btn btn-outline-danger" data-bs-toggle="collapse" data-bs-target="#reworkCollapse">
                                 <i class="bi bi-arrow-repeat me-1"></i>不满意，申请返工
                             </button>
                         </div>
                     </form>
-                    <div class="collapse mt-3" id="reworkCollapse2">
+
+                    <div class="collapse mt-3" id="reworkCollapse">
                         <div class="card border-danger">
                             <div class="card-header bg-danger text-white py-2">
                                 <h6 class="mb-0 small fw-bold"><i class="bi bi-arrow-repeat me-1"></i>申请返工</h6>
                             </div>
                             <div class="card-body">
-                                <form method="post" action="{% url 'order_rework' order.id %}" hx-post="{% url 'order_rework' order.id %}">
+                                <form method="post" action="{% url 'order_rework' order.id %}" hx-post="{% url 'order_rework' order.id %}" hx-target="#order-detail-panel" hx-swap="outerHTML">
                                     {% csrf_token %}
                                     <div class="mb-3">
-                                        <label class="form-label small fw-medium">返工原因 <span class="text-danger">*</span></label>
-                                        <textarea name="rework_reason" class="form-control" rows="4" required placeholder="请详细说明需要返工的原因..."></textarea>
+                                        <label class="form-label small fw-medium">{{ rework_form.rework_reason.label }} <span class="text-danger">*</span></label>
+                                        {{ rework_form.rework_reason }}
+                                        {% if rework_form.rework_reason.errors %}<div class="text-danger small mt-1">{{ rework_form.rework_reason.errors.0 }}</div>{% endif %}
                                     </div>
                                     <div class="row g-3 mb-3">
                                         <div class="col-md-6">
-                                            <label class="form-label small fw-medium">可上门起始时间 <span class="text-danger">*</span></label>
-                                            <input type="datetime-local" name="available_start" class="form-control" required>
+                                            <label class="form-label small fw-medium">{{ rework_form.available_start.label }} <span class="text-danger">*</span></label>
+                                            {{ rework_form.available_start }}
+                                            {% if rework_form.available_start.errors %}<div class="text-danger small mt-1">{{ rework_form.available_start.errors.0 }}</div>{% endif %}
                                         </div>
                                         <div class="col-md-6">
-                                            <label class="form-label small fw-medium">可上门结束时间 <span class="text-danger">*</span></label>
-                                            <input type="datetime-local" name="available_end" class="form-control" required>
+                                            <label class="form-label small fw-medium">{{ rework_form.available_end.label }} <span class="text-danger">*</span></label>
+                                            {{ rework_form.available_end }}
+                                            {% if rework_form.available_end.errors %}<div class="text-danger small mt-1">{{ rework_form.available_end.errors.0 }}</div>{% endif %}
                                         </div>
                                     </div>
-                                    <button type="submit" class="btn btn-danger w-100"><i class="bi bi-arrow-repeat me-1"></i>提交返工申请
-                                    <span class="spinner-border spinner-border-sm ms-2"></span></button>
+                                    <button type="submit" class="btn btn-danger w-100" hx-disable>
+                                        <i class="bi bi-arrow-repeat me-1"></i>提交返工申请
+                                        <span class="spinner-border spinner-border-sm ms-2 htmx-indicator"></span>
+                                    </button>
                                 </form>
                             </div>
                         </div>
@@ -298,28 +350,30 @@
                 {% if can_rework and not can_confirm %}
                 <div class="mb-3 p-3 bg-light rounded">
                     <h6 class="fw-medium mb-3 text-danger"><i class="bi bi-arrow-repeat me-1"></i>已关闭工单申请返工</h6>
-                    <form method="post" action="{% url 'order_rework' order.id %}" hx-post="{% url 'order_rework' order.id %}">
+                    <form method="post" action="{% url 'order_rework' order.id %}" hx-post="{% url 'order_rework' order.id %}" hx-target="#order-detail-panel" hx-swap="outerHTML">
                         {% csrf_token %}
                         <div class="mb-3">
-                            <label class="form-label small fw-medium">返工原因 <span class="text-danger">*</span></label>
-                            <textarea name="rework_reason" class="form-control" rows="4" required></textarea>
+                            <label class="form-label small fw-medium">{{ rework_form.rework_reason.label }} <span class="text-danger">*</span></label>
+                            {{ rework_form.rework_reason }}
                         </div>
                         <div class="row g-3 mb-3">
                             <div class="col-md-6">
-                                <label class="form-label small fw-medium">可上门起始时间 <span class="text-danger">*</span></label>
-                                <input type="datetime-local" name="available_start" class="form-control" required>
+                                <label class="form-label small fw-medium">{{ rework_form.available_start.label }} <span class="text-danger">*</span></label>
+                                {{ rework_form.available_start }}
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label small fw-medium">可上门结束时间 <span class="text-danger">*</span></label>
-                                <input type="datetime-local" name="available_end" class="form-control" required>
+                                <label class="form-label small fw-medium">{{ rework_form.available_end.label }} <span class="text-danger">*</span></label>
+                                {{ rework_form.available_end }}
                             </div>
                         </div>
                         <div class="alert alert-warning small py-2 mb-3">
                             <i class="bi bi-exclamation-triangle me-1"></i>
                             此工单当前为「已关闭」状态。申请返工将创建新的返工单。此工单已有返工次数：<strong>{{ order.rework_count }}/3</strong>
                         </div>
-                        <button type="submit" class="btn btn-danger w-100"><i class="bi bi-arrow-repeat me-1"></i>提交返工申请
-                        <span class="spinner-border spinner-border-sm ms-2"></span></button>
+                        <button type="submit" class="btn btn-danger w-100" hx-disable>
+                            <i class="bi bi-arrow-repeat me-1"></i>提交返工申请
+                            <span class="spinner-border spinner-border-sm ms-2 htmx-indicator"></span>
+                        </button>
                     </form>
                 </div>
                 {% endif %}

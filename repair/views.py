@@ -1,7 +1,7 @@
 import csv
 from io import StringIO
 from django.db import transaction
-from django.shortcuts import render, redirect, get_object_or_404
+from django.shortcuts import render, redirect, get_object_or_404, reverse
 from django.contrib.auth import login, logout, authenticate
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -163,22 +163,8 @@ def order_create(request):
     return render(request, 'order_create.html', {'form': form, 'role': role})
 
 
-@login_required
-def order_detail(request, order_id):
-    order = get_object_or_404(WorkOrder, id=order_id)
+def _build_detail_context(request, order):
     role = get_user_role(request.user)
-
-    can_view = False
-    if role in ['dispatcher', 'admin']:
-        can_view = True
-    elif role == 'resident':
-        can_view = (order.resident_id == request.user.resident_profile.id)
-    elif role == 'technician':
-        can_view = (order.technician_id == request.user.technician_profile.id)
-
-    if not can_view:
-        return HttpResponseForbidden('您无权查看此工单')
-
     can_assign = (role in ['dispatcher', 'admin']) and order.can_assign()
     can_start = order.can_start(request.user)
     can_finish = order.can_finish(request.user)
@@ -197,7 +183,7 @@ def order_detail(request, order_id):
     rework_form = ReworkForm() if can_rework else None
     material_formset = MaterialFormSet(instance=order) if can_finish else None
 
-    context = {
+    return {
         'order': order,
         'role': role,
         'can_assign': can_assign,
@@ -216,6 +202,25 @@ def order_detail(request, order_id):
         'rework_form': rework_form,
         'material_formset': material_formset,
     }
+
+
+@login_required
+def order_detail(request, order_id):
+    order = get_object_or_404(WorkOrder, id=order_id)
+    role = get_user_role(request.user)
+
+    can_view = False
+    if role in ['dispatcher', 'admin']:
+        can_view = True
+    elif role == 'resident':
+        can_view = (order.resident_id == request.user.resident_profile.id)
+    elif role == 'technician':
+        can_view = (order.technician_id == request.user.technician_profile.id)
+
+    if not can_view:
+        return HttpResponseForbidden('您无权查看此工单')
+
+    context = _build_detail_context(request, order)
     return render(request, 'order_detail.html', context)
 
 
@@ -255,18 +260,8 @@ def order_assign(request, order_id):
                         f'分派师傅：{cd["technician"].name}，预约时间：{cd["scheduled_start"].strftime("%Y-%m-%d %H:%M")} ~ {cd["scheduled_end"].strftime("%Y-%m-%d %H:%M")}')
 
             if request.headers.get('HX-Request'):
-                return render(request, '_order_detail_panel.html', {
-                    'order': order, 'role': role,
-                    'can_assign': True and order.can_assign(),
-                    'can_start': order.can_start(request.user),
-                    'can_finish': order.can_finish(request.user),
-                    'can_confirm': order.can_confirm(request.user),
-                    'can_rework': order.can_rework(request.user),
-                    'can_close': (role in ['dispatcher', 'admin']) and order.can_close(),
-                    'materials': order.materials.all(),
-                    'material_total': sum(m.subtotal for m in order.materials.all()),
-                    'timelines': order.timelines.all(),
-                })
+                context = _build_detail_context(request, order)
+                return render(request, '_order_detail_panel.html', context)
             messages.success(request, '派工成功！')
             return redirect('order_detail', order_id=order.id)
         else:
@@ -302,19 +297,8 @@ def order_start(request, order_id):
         add_timeline(order, TIMELINE_ARRIVED, request.user, content)
 
         if request.headers.get('HX-Request'):
-            role = get_user_role(request.user)
-            return render(request, '_order_detail_panel.html', {
-                'order': order, 'role': role,
-                'can_assign': (role in ['dispatcher', 'admin']) and order.can_assign(),
-                'can_start': order.can_start(request.user),
-                'can_finish': order.can_finish(request.user),
-                'can_confirm': order.can_confirm(request.user),
-                'can_rework': order.can_rework(request.user),
-                'can_close': (role in ['dispatcher', 'admin']) and order.can_close(),
-                'materials': order.materials.all(),
-                'material_total': sum(m.subtotal for m in order.materials.all()),
-                'timelines': order.timelines.all(),
-            })
+            context = _build_detail_context(request, order)
+            return render(request, '_order_detail_panel.html', context)
         messages.success(request, '已到场，开始处理！')
         return redirect('order_detail', order_id=order.id)
     return redirect('order_detail', order_id=order.id)
@@ -358,19 +342,8 @@ def order_finish(request, order_id):
             add_timeline(order, TIMELINE_FINISHED, request.user, content)
 
             if request.headers.get('HX-Request'):
-                role = get_user_role(request.user)
-                return render(request, '_order_detail_panel.html', {
-                    'order': order, 'role': role,
-                    'can_assign': (role in ['dispatcher', 'admin']) and order.can_assign(),
-                    'can_start': order.can_start(request.user),
-                    'can_finish': order.can_finish(request.user),
-                    'can_confirm': order.can_confirm(request.user),
-                    'can_rework': order.can_rework(request.user),
-                    'can_close': (role in ['dispatcher', 'admin']) and order.can_close(),
-                    'materials': order.materials.all(),
-                    'material_total': sum(m.subtotal for m in order.materials.all()),
-                    'timelines': order.timelines.all(),
-                })
+                context = _build_detail_context(request, order)
+                return render(request, '_order_detail_panel.html', context)
             messages.success(request, '工单处理完成，等待住户确认！')
             return redirect('order_detail', order_id=order.id)
         else:
@@ -419,19 +392,8 @@ def order_confirm(request, order_id):
             add_timeline(order, TIMELINE_CONFIRMED, request.user, content)
 
             if request.headers.get('HX-Request'):
-                role = get_user_role(request.user)
-                return render(request, '_order_detail_panel.html', {
-                    'order': order, 'role': role,
-                    'can_assign': (role in ['dispatcher', 'admin']) and order.can_assign(),
-                    'can_start': order.can_start(request.user),
-                    'can_finish': order.can_finish(request.user),
-                    'can_confirm': order.can_confirm(request.user),
-                    'can_rework': order.can_rework(request.user),
-                    'can_close': (role in ['dispatcher', 'admin']) and order.can_close(),
-                    'materials': order.materials.all(),
-                    'material_total': sum(m.subtotal for m in order.materials.all()),
-                    'timelines': order.timelines.all(),
-                })
+                context = _build_detail_context(request, order)
+                return render(request, '_order_detail_panel.html', context)
             messages.success(request, '确认成功！')
             return redirect('order_detail', order_id=order.id)
         else:
@@ -494,19 +456,10 @@ def order_rework(request, order_id):
                         f'已生成返工单：{rework_order.order_no}（第{new_rework_count}次返工）')
 
             if request.headers.get('HX-Request'):
-                role = get_user_role(request.user)
-                return render(request, '_order_detail_panel.html', {
-                    'order': order, 'role': role,
-                    'can_assign': (role in ['dispatcher', 'admin']) and order.can_assign(),
-                    'can_start': order.can_start(request.user),
-                    'can_finish': order.can_finish(request.user),
-                    'can_confirm': order.can_confirm(request.user),
-                    'can_rework': order.can_rework(request.user),
-                    'can_close': (role in ['dispatcher', 'admin']) and order.can_close(),
-                    'materials': order.materials.all(),
-                    'material_total': sum(m.subtotal for m in order.materials.all()),
-                    'timelines': order.timelines.all(),
-                })
+                context = _build_detail_context(request, rework_order)
+                response = render(request, '_order_detail_panel.html', context)
+                response['HX-Push-Url'] = reverse('order_detail', args=[rework_order.id])
+                return response
             messages.success(request, f'返工申请成功！新返工单号：{rework_order.order_no}')
             return redirect('order_detail', order_id=rework_order.id)
         else:
