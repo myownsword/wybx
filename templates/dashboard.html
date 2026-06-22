@@ -1,0 +1,192 @@
+{% extends 'base.html' %}
+{% load math_filters %}
+{% block title %}数据统计 - 物业报修系统{% endblock %}
+{% block content %}
+<h3 class="fw-bold mb-4"><i class="bi bi-bar-chart text-primary me-2"></i>数据统计看板</h3>
+
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm bg-primary text-white">
+            <div class="card-body p-4">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <div class="small opacity-75">总工单量</div>
+                        <div class="fs-2 fw-bold">{{ total_orders }}</div>
+                    </div>
+                    <i class="bi bi-journal-text fs-1 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm bg-info text-white">
+            <div class="card-body p-4">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <div class="small opacity-75">{{ year }}年{{ month }}月新增</div>
+                        <div class="fs-2 fw-bold">{{ month_count }}</div>
+                    </div>
+                    <i class="bi bi-calendar-plus fs-1 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm bg-success text-white">
+            <div class="card-body p-4">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <div class="small opacity-75">本月完成</div>
+                        <div class="fs-2 fw-bold">{{ month_done_count }}</div>
+                    </div>
+                    <i class="bi bi-check2-circle fs-1 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm bg-warning text-dark">
+            <div class="card-body p-4">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <div class="small opacity-75">本月完成率</div>
+                        <div class="fs-2 fw-bold">
+                            {% if month_count %}{{ month_done_count|multiply:100|divide:month_count }}%{% else %}0%{% endif %}
+                        </div>
+                    </div>
+                    <i class="bi bi-graph-up fs-1 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-5">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white">
+                <h6 class="fw-bold mb-0"><i class="bi bi-pie-chart text-primary me-2"></i>工单状态分布</h6>
+            </div>
+            <div class="card-body">
+                {% for label, count in status_dist.items %}
+                <div class="mb-2">
+                    <div class="d-flex justify-content-between small mb-1">
+                        <span>{{ label }}</span>
+                        <span class="fw-medium">{{ count }}</span>
+                    </div>
+                    <div class="progress" style="height: 8px;">
+                        <div class="progress-bar
+                            {% if '待派工' in label %}bg-warning
+                            {% elif '已派工' in label %}bg-info
+                            {% elif '处理中' in label %}bg-primary
+                            {% elif '待确认' in label %}bg-secondary
+                            {% elif '已确认' in label %}bg-success
+                            {% elif '返工' in label %}bg-danger
+                            {% elif '已关闭' in label %}bg-dark
+                            {% endif %}"
+                            role="progressbar" style="width: {% if total_orders %}{{ count|multiply:100|divide:total_orders }}%{% else %}0%{% endif %};">
+                        </div>
+                    </div>
+                </div>
+                {% empty %}
+                <p class="text-muted small">暂无数据</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-7">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white d-flex align-items-center justify-content-between">
+                <h6 class="fw-bold mb-0"><i class="bi bi-box-seam text-warning me-2"></i>本月耗材 TOP10</h6>
+                <a href="{% url 'export_materials' %}" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-download me-1"></i>导出完整CSV
+                </a>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0 align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="ps-3">耗材名称</th>
+                                <th>单位</th>
+                                <th class="text-center">工单数量</th>
+                                <th class="text-end">总用量</th>
+                                <th class="text-end pe-3">总金额</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for m in top_materials %}
+                            <tr>
+                                <td class="ps-3 fw-medium">{{ m.material__name }}</td>
+                                <td>{{ m.material__unit }}</td>
+                                <td class="text-center"><span class="badge bg-primary">{{ m.order_count }}</span></td>
+                                <td class="text-end">{{ m.total_qty.normalize }}</td>
+                                <td class="text-end pe-3 fw-medium text-danger">¥{{ m.total_amt|default:0 }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="5" class="text-center py-4 text-muted">本月暂无耗材使用数据</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-12">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white">
+                <h6 class="fw-bold mb-0"><i class="bi bi-person-gear text-success me-2"></i>本月维修师傅工作量</h6>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0 align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="ps-3">师傅姓名</th>
+                                <th>完工工单</th>
+                                <th>平均满意度</th>
+                                <th class="pe-3">工作表现</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for t in tech_stats %}
+                            <tr>
+                                <td class="ps-3 fw-medium"><i class="bi bi-person-gear text-primary me-1"></i>{{ t.technician__name }}</td>
+                                <td><span class="badge bg-success">{{ t.done_count }}单</span></td>
+                                <td>
+                                    {% if t.avg_sat %}
+                                    {% with ''|center:5 as range %}
+                                    {% for _ in range %}
+                                        {% if t.avg_sat >= forloop.counter %}
+                                        <i class="bi bi-star-fill text-warning"></i>
+                                        {% else %}
+                                        <i class="bi bi-star text-muted"></i>
+                                        {% endif %}
+                                    {% endfor %}
+                                    {% endwith %}
+                                    <span class="ms-2 small text-muted">{{ t.avg_sat|floatformat:1 }}/5</span>
+                                    {% else %}
+                                    <span class="text-muted small">暂无</span>
+                                    {% endif %}
+                                </td>
+                                <td class="pe-3">
+                                    {% if t.avg_sat and t.avg_sat >= 4.5 %}<span class="badge bg-success">优秀</span>
+                                    {% elif t.avg_sat and t.avg_sat >= 3.5 %}<span class="badge bg-primary">良好</span>
+                                    {% elif t.avg_sat and t.avg_sat >= 3 %}<span class="badge bg-secondary">一般</span>
+                                    {% elif t.avg_sat %}<span class="badge bg-warning text-dark">需改进</span>
+                                    {% else %}<span class="text-muted small">-</span>{% endif %}
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="4" class="text-center py-4 text-muted">本月暂无完工数据</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

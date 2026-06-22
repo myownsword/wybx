@@ -1,0 +1,113 @@
+{% extends 'base.html' %}
+{% block title %}提交报修 - 物业报修系统{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-10 col-lg-8">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-0">
+                <h4 class="fw-bold mb-0">
+                    <i class="bi bi-wrench-adjustable text-primary me-2"></i>提交维修报修
+                </h4>
+                <p class="text-muted small mb-0 mt-1">请填写以下报修信息，我们将尽快安排师傅上门处理</p>
+            </div>
+            <div class="card-body">
+                <form method="post" novalidate>
+                    {% csrf_token %}
+                    {% if form.non_field_errors %}
+                    <div class="alert alert-danger">
+                        {% for err in form.non_field_errors %}
+                        <div>{{ err }}</div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    <div class="row g-3">
+                        <div class="col-md-12">
+                            <div class="card bg-light border-0">
+                                <div class="card-body py-3">
+                                    <h6 class="fw-medium text-primary mb-2"><i class="bi bi-house-door me-1"></i>房屋信息</h6>
+                                    <div class="row g-3">
+                                        <div class="col-md-4">
+                                            <label class="form-label fw-medium">{{ form.building.label }} <span class="text-danger">*</span></label>
+                                            {{ form.building }}
+                                            {% if form.building.errors %}<div class="invalid-feedback d-block">{{ form.building.errors.0 }}</div>{% endif %}
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label fw-medium">{{ form.unit.label }}</label>
+                                            {{ form.unit }}
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label fw-medium">{{ form.room_number.label }} <span class="text-danger">*</span></label>
+                                            {{ form.room_number }}
+                                            {% if form.room_number.errors %}<div class="invalid-feedback d-block">{{ form.room_number.errors.0 }}</div>{% endif %}
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-medium">{{ form.resident_name.label }} <span class="text-danger">*</span></label>
+                                            {{ form.resident_name }}
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-medium">{{ form.contact_phone.label }} <span class="text-danger">*</span></label>
+                                            {{ form.contact_phone }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-12">
+                            <div class="card bg-light border-0">
+                                <div class="card-body py-3">
+                                    <h6 class="fw-medium text-primary mb-2"><i class="bi bi-exclamation-triangle me-1"></i>报修详情</h6>
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-medium">{{ form.problem_type.label }} <span class="text-danger">*</span></label>
+                                            {{ form.problem_type }}
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-medium">{{ form.urgency.label }} <span class="text-danger">*</span></label>
+                                            {{ form.urgency }}
+                                        </div>
+                                        <div class="col-md-12">
+                                            <label class="form-label fw-medium">{{ form.description.label }} <span class="text-danger">*</span></label>
+                                            {{ form.description }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-12">
+                            <div class="card bg-light border-0">
+                                <div class="card-body py-3">
+                                    <h6 class="fw-medium text-primary mb-2"><i class="bi bi-calendar-check me-1"></i>可上门时间</h6>
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-medium">{{ form.available_start.label }} <span class="text-danger">*</span></label>
+                                            {{ form.available_start }}
+                                            {% if form.available_start.errors %}<div class="invalid-feedback d-block">{{ form.available_start.errors.0 }}</div>{% endif %}
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-medium">{{ form.available_end.label }} <span class="text-danger">*</span></label>
+                                            {{ form.available_end }}
+                                            {% if form.available_end.errors %}<div class="invalid-feedback d-block">{{ form.available_end.errors.0 }}</div>{% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex gap-2 mt-4">
+                        <a href="{% url 'order_list' %}" class="btn btn-outline-secondary">
+                            <i class="bi bi-arrow-left me-1"></i>返回列表
+                        </a>
+                        <button type="submit" class="btn btn-primary ms-auto">
+                            <i class="bi bi-send me-1"></i>提交报修
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
