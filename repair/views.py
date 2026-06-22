@@ -7,7 +7,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
 from django.utils import timezone
-from django.db.models import Q, Sum, Count, F, DecimalField
+from django.db.models import Q, Sum, Count, F, DecimalField, Avg
 from django.db.models.functions import Coalesce
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -596,8 +596,6 @@ def dashboard(request):
         done_count=Count('id'),
         avg_sat=Avg('satisfaction'),
     ).order_by('-done_count')
-
-    from django.db.models import Avg
 
     context = {
         'role': role,
